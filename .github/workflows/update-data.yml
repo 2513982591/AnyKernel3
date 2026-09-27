@@ -12,6 +12,9 @@ on:
 
 permissions:
   contents: write
+  # 推送包含 .github/workflows/*.yml 的提交必须有 workflows 写权限，
+  # 否则 GITHUB_TOKEN 推送会被远程拒绝
+  workflows: write
 
 concurrency:
   group: update-data
