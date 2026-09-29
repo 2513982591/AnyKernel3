@@ -244,41 +244,46 @@ jobs:
         id: add_SUSFS
         continue-on-error: true
         run: |
-          BUILD_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/sidex15/susfs4ksu-module/actions/workflows/build.yml/runs?status=success" |
-          jq -r '.workflow_runs[0].id')
-
-          ARTIFACTS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/sidex15/susfs4ksu-module/actions/runs/$BUILD_ID/artifacts")
-
-          DOWNLOAD_URL=$(echo "$ARTIFACTS" | jq -r '.artifacts[0].archive_download_url')
-
-          NAME=$(echo "$ARTIFACTS" | jq -r '.artifacts[0].name')
-          echo "SUSFS_NAME=$NAME" >> $GITHUB_ENV
-          NAME="susfs-$NAME.zip"
-
-          echo $DOWNLOAD_URL
-          echo $NAME
-          # 下载 Manager 文件
-          curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -o "$NAME" "$DOWNLOAD_URL"
-          echo "$NAME 文件已下载.zip"
-
-
-          # 解压 artifact zip 获取里面的模块文件
-          mkdir -p susfs-module
-          unzip "$NAME" -d susfs-temp
-
-          # 检查解压后的内容：如果是散装文件则打包成 zip
-          cd susfs-temp
-          if ls *.zip 1>/dev/null 2>&1; then
-            # 里面已经是 zip 文件，直接移动
-            mv *.zip ../susfs-module/
-          else
-            # 是散装文件，打包成 zip
-            zip -r "../susfs-module/ksu_module_susfs.zip" .
+          # 上游 susfs4ksu-module 的 Actions artifacts 已全部过期，
+          # 模块现通过 GitHub Releases 发布，改为拉取最新 Release 资产
+          RELEASE_API="https://api.github.com/repos/sidex15/susfs4ksu-module/releases/latest"
+          RELEASE_JSON=""
+          for ATTEMPT in 1 2 3; do
+            RELEASE_JSON=$(curl -s --fail --max-time 30 \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$RELEASE_API") \
+              && [ -n "$RELEASE_JSON" ] && break
+            echo "获取 Release 信息失败，重试 ($ATTEMPT/3)..."
+            sleep 5
+          done
+          if [ -z "$RELEASE_JSON" ]; then
+            echo "无法获取 susfs4ksu-module 最新 Release 信息"
+            exit 1
           fi
-          cd ..
-          rm -rf susfs-temp "$NAME"
+
+          TAG_NAME=$(printf '%s' "$RELEASE_JSON" | jq -r '.tag_name')
+          ASSET_URL=$(printf '%s' "$RELEASE_JSON" | jq -r '.assets[] | select((.name | contains("ksu_module_susfs")) and (.name | endswith(".zip"))) | .browser_download_url' | head -n 1)
+
+          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
+            echo "Release $TAG_NAME 中未找到 ksu_module_susfs 模块 zip"
+            exit 1
+          fi
+
+          NAME="ksu_module_susfs.zip"
+          echo "下载 SUSFS 模块: $NAME (Release $TAG_NAME)"
+          if ! curl -sL --fail --retry 3 --max-time 120 -o "$NAME" "$ASSET_URL"; then
+            echo "下载 SUSFS 模块失败: $ASSET_URL"
+            exit 1
+          fi
+          echo "SUSFS_NAME=$TAG_NAME" >> $GITHUB_ENV
+
+          # Release 资产本身即完整模块 zip，校验完整性后直接放入模块目录
+          if ! unzip -t "$NAME" >/dev/null 2>&1; then
+            echo "下载的 SUSFS 模块 zip 损坏"
+            exit 1
+          fi
+          mkdir -p susfs-module
+          mv "$NAME" "susfs-module/$NAME"
+          ls -la susfs-module/
 
       - name: Notify on failure
         if: steps.add_KSU.outcome == 'failure'
