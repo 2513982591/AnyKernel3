@@ -13,8 +13,8 @@ on:
         type: choice
         options:
           - SukiSU
-          - ReSukiSU
-        default: ReSukiSU
+          - BakaSU
+        default: BakaSU
       version:
         description: "自定义版本名 (可选)"
         required: false
@@ -186,7 +186,7 @@ jobs:
             os_patch_level: "2026-09"
           - sub_level: "X"
             os_patch_level: "lts"
-            display_sub: "93"
+            display_sub: "94"
     uses: ./.github/workflows/build.yml
     secrets: inherit
     with:
